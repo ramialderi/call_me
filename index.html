@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>دردشة الأصدقاء</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e9eef0;--ink:#132229;--card:#fff;--me:#0f6b64;--meink:#fff;--mute:#6b7c84;--line:#d3dde1;--red:#c43d3d}
+@media (prefers-color-scheme:dark){:root{--bg:#10191d;--ink:#e6eef0;--card:#1b282e;--me:#14857c;--line:#2a3a41;--mute:#8da0a8}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:Tajawal,system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+button{font:inherit;color:inherit;cursor:pointer;border:0;border-radius:12px}
+input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--me);outline-offset:2px}
+#join{max-width:360px;margin:0 auto;padding:12vh 20px 0;display:flex;flex-direction:column;gap:12px}
+#join h1{font-size:28px;margin:0 0 4px}
+#join p{margin:0 0 8px;color:var(--mute)}
+.f{padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+.go{background:var(--me);color:var(--meink);padding:14px;font-weight:700}
+#app{display:none;height:100%;flex-direction:column;max-width:720px;margin:0 auto}
+header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card);border-bottom:1px solid var(--line)}
+header b{flex:1}
+header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
+.ic{width:44px;height:44px;background:var(--me);color:#fff;font-size:20px}
+#list{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px}
+.m{max-width:80%;padding:8px 12px;border-radius:14px;background:var(--card);align-self:flex-end;overflow-wrap:anywhere}
+.m.me{background:var(--me);color:var(--meink);align-self:flex-start}
+.m .n{font-size:12px;color:var(--mute);font-weight:700}
+.m .t{font-size:11px;opacity:.65;margin-top:2px}
+.m audio{height:36px;max-width:100%}
+#bar{display:flex;gap:8px;padding:10px;background:var(--card);border-top:1px solid var(--line)}
+#txt{flex:1;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);min-width:0}
+#mic.rec{background:var(--red);animation:p 1s infinite}
+@keyframes p{50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){#mic.rec{animation:none}}
+#call{position:fixed;inset:0;background:rgba(10,20,24,.94);color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:9}
+#call h2{margin:0;font-size:26px}
+#call .row{display:flex;gap:18px;margin-top:18px}
+#call .row button{width:64px;height:64px;border-radius:50%;font-size:26px;color:#fff;background:#37474f}
+#call .ok{background:#1f9d55!important}#call .no{background:var(--red)!important}
+#note{position:fixed;top:12px;inset-inline:12px;margin:auto;max-width:420px;background:var(--red);color:#fff;padding:10px 14px;border-radius:12px;display:none;z-index:10}
+</style>
+</head>
+<body>
+<div id="note" role="alert"></div>
+
+<form id="join" onsubmit="return false">
+  <h1>دردشة الأصدقاء</h1>
+  <p>سجّل دخولك، ثم اكتب رمز الغرفة المشترك مع أصدقائك.</p>
+  <input class="f" id="name" placeholder="اسمك (للحساب الجديد فقط)" maxlength="20" autocomplete="nickname">
+  <input class="f" id="email" type="email" placeholder="البريد الإلكتروني" autocomplete="email" dir="ltr">
+  <input class="f" id="pass" type="password" placeholder="كلمة المرور" autocomplete="current-password" dir="ltr">
+  <input class="f" id="room" placeholder="رمز الغرفة (مثال: shabab2026)" maxlength="40" autocapitalize="none">
+  <button class="go" id="login">دخول</button>
+  <button class="f" id="signup">إنشاء حساب جديد</button>
+</form>
+
+<div id="app">
+  <header>
+    <b id="title"></b>
+    <button class="ic" id="callBtn" title="اتصال صوتي" aria-label="اتصال صوتي">📞</button>
+    <button class="ic" id="out" title="خروج" aria-label="تسجيل الخروج" style="background:var(--mute)">⎋</button>
+  </header>
+  <div id="list"></div>
+  <div id="bar">
+    <button class="ic" id="mic" title="تسجيل رسالة صوتية" aria-label="تسجيل رسالة صوتية">🎙️</button>
+    <input id="txt" placeholder="اكتب رسالة" autocomplete="off">
+    <button class="ic" id="send" aria-label="إرسال">➤</button>
+  </div>
+</div>
+
+<div id="call">
+  <h2 id="cname"></h2>
+  <div id="cstat"></div>
+  <div class="row">
+    <button id="cmute" aria-label="كتم">🎤</button>
+    <button id="cacc" class="ok" aria-label="رد">📞</button>
+    <button id="cend" class="no" aria-label="إنهاء">✖</button>
+  </div>
+  <audio id="remote" autoplay playsinline></audio>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+/* ===== الإعدادات: ضع بيانات مشروع Supabase هنا ===== */
+const SUPABASE_URL = "https://fjghpwtgtkvzgititwaj.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqZ2hwd3RndGt2emdpdGl0d2FqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2MzM3NTIsImV4cCI6MjEwNzIwOTc1Mn0.LJr_Spkjy2jHbHeOPnc07SJQPz1mqOk7Vsco95_SpUs";
+/* خوادم الاتصال. للشبكات الصعبة أضف خادم TURN هنا */
+const ICE = [{urls:"stun:stun.l.google.com:19302"}
+  /* ,{urls:"turn:YOUR-TURN-HOST:3478",username:"user",credential:"pass"} */];
+/* ================================================== */
+
+const $ = id => document.getElementById(id);
+const store = (k,v) => { try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k,v);}catch(e){} };
+let sb, uid, room, name, sig, live = false, seen = new Set();
+
+function note(t){ const n=$("note"); n.textContent=t; n.style.display="block"; setTimeout(()=>n.style.display="none",4500); }
+
+/* ---------- تسجيل الدخول ---------- */
+const unset = () => SUPABASE_URL.includes("YOUR-PROJECT");
+const client = () => sb = sb || supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+$("room").value = store("room") || "";
+async function auth(signup){
+  const email=$("email").value.trim(), pass=$("pass").value, r=$("room").value.trim().toLowerCase(), n=$("name").value.trim();
+  if(!email || !pass || !r) return note("اكتب البريد وكلمة المرور ورمز الغرفة");
+  if(signup && !n) return note("اكتب اسمك للحساب الجديد");
+  if(unset()) return note("أضف بيانات Supabase داخل الملف أولاً");
+  askNotify();
+  const res = signup ? await client().auth.signUp({email,password:pass,options:{data:{name:n}}})
+                     : await client().auth.signInWithPassword({email,password:pass});
+  if(res.error) return note(res.error.message);
+  if(!res.data.session) return note("افتح بريدك لتأكيد الحساب، ثم سجّل الدخول");
+  enter(res.data.session.user, r);
+}
+function enter(user, r){
+  uid = user.id; name = (user.user_metadata && user.user_metadata.name) || user.email.split("@")[0]; room = r; store("room", r);
+  $("join").style.display="none"; $("app").style.display="flex"; $("title").textContent = "غرفة: " + room;
+  loadMessages(); listen(); startSignal();
+}
+$("login").onclick = () => auth(false);
+$("signup").onclick = () => auth(true);
+$("out").onclick = async () => { await client().auth.signOut(); location.reload(); };
+(async () => {  /* استعادة الجلسة تلقائياً */
+  if(unset() || !store("room")) return;
+  const {data} = await client().auth.getSession();
+  if(data.session) enter(data.session.user, store("room"));
+})();
+
+/* ---------- الإشعارات ---------- */
+const LN = () => window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
+function askNotify(){
+  try{ if(LN()) LN().requestPermissions(); else if(window.Notification && Notification.permission==="default") Notification.requestPermission(); }catch(e){}
+}
+async function notify(title, body){
+  if(!document.hidden) return;
+  try{
+    if(LN()) await LN().schedule({notifications:[{id:Date.now()%2147483000,title,body}]});
+    else if(window.Notification && Notification.permission==="granted"){ new Notification(title,{body}); if(navigator.vibrate) navigator.vibrate(200); }
+  }catch(e){}
+}
+
+/* ---------- الرسائل ---------- */
+function add(m){
+  if(seen.has(m.id)) return; seen.add(m.id);
+  if(live && m.uid!==uid) notify(m.name, m.kind==="audio" ? "🎙️ رسالة صوتية" : m.body);
+  const d = document.createElement("div"); d.className = "m" + (m.uid===uid ? " me" : "");
+  if(m.uid!==uid){ const n=document.createElement("div"); n.className="n"; n.textContent=m.name; d.appendChild(n); }
+  if(m.kind==="audio"){ const a=document.createElement("audio"); a.controls=true; a.src=m.body; d.appendChild(a); }
+  else { const s=document.createElement("div"); s.textContent=m.body; d.appendChild(s); }
+  const t=document.createElement("div"); t.className="t";
+  t.textContent = new Date(m.created_at).toLocaleTimeString("ar",{hour:"2-digit",minute:"2-digit"}); d.appendChild(t);
+  const l=$("list"), near = l.scrollHeight-l.scrollTop-l.clientHeight < 120 || m.uid===uid;
+  l.appendChild(d); if(near) l.scrollTop = l.scrollHeight;
+}
+async function loadMessages(){
+  const {data,error} = await sb.from("messages").select("*").eq("room",room).order("id",{ascending:false}).limit(80);
+  if(error) return note("تعذّر تحميل الرسائل: " + error.message);
+  data.reverse().forEach(add); live = true;
+}
+function listen(){
+  sb.channel("msgs-"+room).on("postgres_changes",
+    {event:"INSERT",schema:"public",table:"messages",filter:"room=eq."+room}, p => add(p.new)).subscribe();
+}
+async function post(kind, body){
+  const {error} = await sb.from("messages").insert({room, uid, name, kind, body});
+  if(error) note("لم تُرسل الرسالة: " + error.message);
+}
+function sendText(){ const v=$("txt").value.trim(); if(!v) return; $("txt").value=""; post("text",v); }
+$("send").onclick = sendText;
+$("txt").onkeydown = e => { if(e.key==="Enter") sendText(); };
+
+/* ---------- الرسائل الصوتية ---------- */
+let rec, chunks, recTimer;
+$("mic").onclick = async () => {
+  if(rec && rec.state==="recording"){ rec.stop(); return; }
+  try{
+    const st = await navigator.mediaDevices.getUserMedia({audio:true});
+    rec = new MediaRecorder(st); chunks = [];
+    rec.ondataavailable = e => chunks.push(e.data);
+    rec.onstop = () => {
+      clearTimeout(recTimer); st.getTracks().forEach(t=>t.stop()); $("mic").classList.remove("rec");
+      const blob = new Blob(chunks,{type:rec.mimeType}); if(blob.size<1500) return;
+      const fr = new FileReader(); fr.onload = () => post("audio", fr.result); fr.readAsDataURL(blob);
+    };
+    rec.start(); $("mic").classList.add("rec");
+    recTimer = setTimeout(()=>rec.state==="recording"&&rec.stop(), 45000);
+  }catch(e){ note("اسمح للمتصفح باستخدام المايكروفون"); }
+};
+
+/* ---------- المكالمات (WebRTC) ---------- */
+let pc, local, peer = null, offer = null, queue = [], muted = false;
+function sendSig(o){ sig.send({type:"broadcast",event:"sig",payload:{...o,from:uid,name}}); }
+function startSignal(){
+  sig = sb.channel("call-"+room,{config:{broadcast:{self:false}}});
+  sig.on("broadcast",{event:"sig"},({payload}) => onSig(payload)).subscribe();
+}
+function ui(title, stat, {acc=false}={}){
+  $("call").style.display="flex"; $("cname").textContent=title; $("cstat").textContent=stat;
+  $("cacc").style.display = acc ? "block" : "none"; $("cmute").style.display = acc ? "none" : "block";
+}
+async function makePc(){
+  local = await navigator.mediaDevices.getUserMedia({audio:true});
+  pc = new RTCPeerConnection({iceServers:ICE});
+  local.getTracks().forEach(t => pc.addTrack(t,local));
+  pc.ontrack = e => { $("remote").srcObject = e.streams[0]; };
+  pc.onicecandidate = e => { if(e.candidate) sendSig({t:"ice",to:peer,c:e.candidate}); };
+  pc.onconnectionstatechange = () => {
+    if(pc.connectionState==="connected") $("cstat").textContent="متصل";
+    if(["failed","closed"].includes(pc.connectionState)) { note("انقطع الاتصال"); end(false); }
+  };
+}
+async function flush(){ for(const c of queue) try{ await pc.addIceCandidate(c);}catch(e){} queue=[]; }
+$("callBtn").onclick = async () => {
+  if(pc || offer) return;
+  try{
+    await makePc(); const o = await pc.createOffer(); await pc.setLocalDescription(o);
+    ui("اتصال صوتي","جاري الاتصال…"); sendSig({t:"offer",sdp:pc.localDescription});
+  }catch(e){ note("تعذّر بدء المكالمة. تأكد من إذن المايكروفون"); end(false); }
+};
+async function onSig(p){
+  if(p.to && p.to!==uid) return;
+  if(p.t==="offer"){
+    if(pc || offer) return;
+    peer = p.from; offer = p.sdp; ui(p.name, "يتصل بك…", {acc:true}); notify(p.name, "يتصل بك 📞");
+  } else if(p.t==="answer"){
+    if(!pc || peer) return; peer = p.from;
+    await pc.setRemoteDescription(p.sdp); await flush();
+  } else if(p.t==="ice"){
+    if(p.from===peer || (!peer && pc)){
+      if(pc && pc.remoteDescription){ try{ await pc.addIceCandidate(p.c);}catch(e){} } else queue.push(p.c);
+    }
+  } else if(p.t==="bye"){
+    if(p.from===peer || (!peer && pc===null)) end(false);
+  }
+}
+$("cacc").onclick = async () => {
+  try{
+    await makePc(); await pc.setRemoteDescription(offer); offer = null; await flush();
+    const a = await pc.createAnswer(); await pc.setLocalDescription(a);
+    sendSig({t:"answer",to:peer,sdp:pc.localDescription}); ui($("cname").textContent,"جاري الربط…");
+  }catch(e){ note("تعذّر الرد على المكالمة"); end(true); }
+};
+$("cmute").onclick = () => {
+  muted = !muted; local && local.getAudioTracks().forEach(t => t.enabled = !muted);
+  $("cmute").textContent = muted ? "🔇" : "🎤";
+};
+$("cend").onclick = () => end(true);
+function end(notify){
+  if(notify && sig) sendSig({t:"bye",to:peer});
+  if(pc){ try{pc.close();}catch(e){} }
+  if(local) local.getTracks().forEach(t=>t.stop());
+  pc = local = peer = offer = null; queue = []; muted = false; $("cmute").textContent="🎤";
+  $("remote").srcObject = null; $("call").style.display = "none";
+}
+</script>
+</body>
+</html>
