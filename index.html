@@ -74,6 +74,7 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 <div id="call">
   <h2 id="cname"></h2>
   <div id="cstat"></div>
+  <div id="dbg" dir="ltr" style="font:12px monospace;opacity:.7;max-width:90%;text-align:center"></div>
   <div class="row">
     <button id="cmute" aria-label="كتم">🎤</button>
     <button id="cacc" class="ok" aria-label="رد">📞</button>
@@ -91,12 +92,14 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const METERED_APP = "rami";   /* مثال: myapp  (من العنوان myapp.metered.live) */
 const METERED_KEY = "9cccbbec4e5889b371ff14af90165ccf80eb";
 let ICE = [{urls:"stun:stun.l.google.com:19302"}];
+let iceNote = "";
 async function loadIce(){
-  if(METERED_APP.includes("YOUR-")) return;
+  if(METERED_APP.includes("YOUR-")){ iceNote="not-configured"; return; }
   try{
     const res = await fetch("https://"+METERED_APP+".metered.live/api/v1/turn/credentials?apiKey="+METERED_KEY);
-    const l = await res.json(); if(Array.isArray(l) && l.length) ICE = l;
-  }catch(e){}
+    const l = await res.json();
+    if(Array.isArray(l) && l.length){ ICE = l; iceNote = ""; } else iceNote = "metered:" + JSON.stringify(l).slice(0,60);
+  }catch(e){ iceNote = "metered-fetch-failed"; }
 }
 /* ================================================== */
 
@@ -214,7 +217,10 @@ async function makePc(){
   pc = new RTCPeerConnection({iceServers:ICE});
   local.getTracks().forEach(t => pc.addTrack(t,local));
   pc.ontrack = e => { $("remote").srcObject = e.streams[0]; };
-  pc.onicecandidate = e => { if(e.candidate) sendSig({t:"ice",to:peer,c:e.candidate}); };
+  const cnt = {host:0,srflx:0,relay:0}, turn = ICE.some(i => String(i.urls).includes("turn"));
+  const show = () => { if(pc) $("dbg").textContent = "TURN:" + (turn?"yes":"NO") + " host:" + cnt.host + " srflx:" + cnt.srflx + " relay:" + cnt.relay + " ice:" + pc.iceConnectionState + (iceNote ? " | " + iceNote : ""); };
+  pc.onicecandidate = e => { if(e.candidate){ if(cnt[e.candidate.type]!==undefined) cnt[e.candidate.type]++; show(); sendSig({t:"ice",to:peer,c:e.candidate}); } };
+  pc.oniceconnectionstatechange = show; show();
   pc.onconnectionstatechange = () => {
     if(pc.connectionState==="connected") $("cstat").textContent="متصل";
     if(pc.connectionState==="failed"){ note("تعذّر الربط بين الجهازين. الغالب يحتاج خادم TURN"); end(true); }
@@ -261,7 +267,7 @@ function end(notify){
   if(pc){ try{pc.close();}catch(e){} }
   if(local) local.getTracks().forEach(t=>t.stop());
   pc = local = peer = offer = null; queue = []; muted = false; $("cmute").textContent="🎤";
-  $("remote").srcObject = null; $("call").style.display = "none";
+  $("remote").srcObject = null; $("dbg").textContent = ""; $("call").style.display = "none";
 }
 </script>
 </body>
