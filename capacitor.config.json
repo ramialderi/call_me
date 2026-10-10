@@ -1,0 +1,6 @@
+{
+  "appId": "com.ramialderi.ramchat",
+  "appName": "دردشة الأصدقاء",
+  "webDir": "www",
+  "server": { "androidScheme": "https" }
+}
