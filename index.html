@@ -25,8 +25,12 @@ header b{flex:1}
 header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 .ic{width:44px;height:44px;background:var(--me);color:#fff;font-size:20px}
 #list{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px}
-.m{max-width:80%;padding:8px 12px;border-radius:14px;background:var(--card);align-self:flex-end;overflow-wrap:anywhere}
-.m.me{background:var(--me);color:var(--meink);align-self:flex-start}
+.r{display:flex;gap:8px;align-items:flex-end;align-self:flex-end;max-width:85%}
+.r.me{align-self:flex-start}
+.av{width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px}
+.m{padding:8px 12px;border-radius:14px;background:var(--card);overflow-wrap:anywhere;min-width:0}
+.m img{max-width:100%;max-height:260px;border-radius:10px;display:block}
+.m.me{background:var(--me);color:var(--meink)}
 .m .n{font-size:12px;color:var(--mute);font-weight:700}
 .m .t{font-size:11px;opacity:.65;margin-top:2px}
 .m audio{height:36px;max-width:100%}
@@ -65,6 +69,8 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
   </header>
   <div id="list"></div>
   <div id="bar">
+    <button class="ic" id="attach" title="إرفاق صورة أو ملف" aria-label="إرفاق صورة أو ملف">📎</button>
+    <input type="file" id="fi" hidden>
     <button class="ic" id="mic" title="تسجيل رسالة صوتية" aria-label="تسجيل رسالة صوتية">🎙️</button>
     <input id="txt" placeholder="اكتب رسالة" autocomplete="off">
     <button class="ic" id="send" aria-label="إرسال">➤</button>
@@ -153,17 +159,22 @@ async function notify(title, body){
 }
 
 /* ---------- الرسائل ---------- */
+const hue = s => { let h=0; for(const c of s) h=(h*31+c.charCodeAt(0))%360; return h; };
 function add(m){
   if(seen.has(m.id)) return; seen.add(m.id);
-  if(live && m.uid!==uid) notify(m.name, m.kind==="audio" ? "🎙️ رسالة صوتية" : m.body);
+  if(live && m.uid!==uid) notify(m.name, ({audio:"🎙️ رسالة صوتية",image:"📷 صورة",file:"📄 ملف"})[m.kind] || m.body);
   const d = document.createElement("div"); d.className = "m" + (m.uid===uid ? " me" : "");
   if(m.uid!==uid){ const n=document.createElement("div"); n.className="n"; n.textContent=m.name; d.appendChild(n); }
   if(m.kind==="audio"){ const a=document.createElement("audio"); a.controls=true; a.src=m.body; d.appendChild(a); }
+  else if(m.kind==="image"){ const a=document.createElement("a"); a.href=m.body; a.target="_blank"; a.rel="noopener"; const i=document.createElement("img"); i.src=m.body; i.loading="lazy"; i.alt="صورة"; a.appendChild(i); d.appendChild(a); }
+  else if(m.kind==="file"){ const [u,n]=m.body.split("\n"); const a=document.createElement("a"); a.href=u; a.target="_blank"; a.rel="noopener"; a.style.color="inherit"; a.textContent="📄 "+(n||"ملف"); d.appendChild(a); }
   else { const s=document.createElement("div"); s.textContent=m.body; d.appendChild(s); }
   const t=document.createElement("div"); t.className="t";
   t.textContent = new Date(m.created_at).toLocaleTimeString("ar",{hour:"2-digit",minute:"2-digit"}); d.appendChild(t);
   const l=$("list"), near = l.scrollHeight-l.scrollTop-l.clientHeight < 120 || m.uid===uid;
-  l.appendChild(d); if(near) l.scrollTop = l.scrollHeight;
+  const w=document.createElement("div"); w.className="r"+(m.uid===uid?" me":"");
+  if(m.uid!==uid){ const a=document.createElement("div"); a.className="av"; a.textContent=[...m.name][0]||"?"; a.style.background="hsl("+hue(m.name)+" 45% 38%)"; w.appendChild(a); }
+  w.appendChild(d); l.appendChild(w); if(near) l.scrollTop = l.scrollHeight;
 }
 async function loadMessages(){
   const {data,error} = await sb.from("messages").select("*").eq("room",room).order("id",{ascending:false}).limit(80);
@@ -198,6 +209,28 @@ $("mic").onclick = async () => {
     rec.start(); $("mic").classList.add("rec");
     recTimer = setTimeout(()=>rec.state==="recording"&&rec.stop(), 45000);
   }catch(e){ note("اسمح للمتصفح باستخدام المايكروفون"); }
+};
+
+/* ---------- الصور والملفات ---------- */
+$("attach").onclick = () => $("fi").click();
+async function shrink(f){
+  try{
+    const b = await createImageBitmap(f), k = Math.min(1, 1280/Math.max(b.width,b.height));
+    const c = document.createElement("canvas"); c.width = Math.round(b.width*k); c.height = Math.round(b.height*k);
+    c.getContext("2d").drawImage(b,0,0,c.width,c.height);
+    return await new Promise(res => c.toBlob(res,"image/jpeg",0.8));
+  }catch(e){ return f; }
+}
+$("fi").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if(!f) return;
+  if(f.size > 10*1024*1024) return note("الحد الأقصى للملف 10 ميجا");
+  const img = f.type.startsWith("image/"), blob = img ? await shrink(f) : f;
+  const ext = img ? "jpg" : ((f.name.split(".").pop() || "bin").replace(/[^a-z0-9]/gi,"").slice(0,8) || "bin");
+  const path = room.replace(/[^a-z0-9_-]/g,"_") + "/" + Date.now() + "-" + Math.random().toString(36).slice(2,8) + "." + ext;
+  const {error} = await sb.storage.from("chat-files").upload(path, blob, {contentType: blob.type || f.type});
+  if(error) return note("فشل الرفع: " + error.message);
+  const url = sb.storage.from("chat-files").getPublicUrl(path).data.publicUrl;
+  post(img ? "image" : "file", img ? url : url + "\n" + f.name.slice(0,60));
 };
 
 /* ---------- المكالمات (WebRTC) ---------- */
