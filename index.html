@@ -93,11 +93,11 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ===== الإعدادات: ضع بيانات مشروع Supabase هنا ===== */
-const SUPABASE_URL = "https://fjghpwtgtkvzgititwaj.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqZ2hwd3RndGt2emdpdGl0d2FqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2MzM3NTIsImV4cCI6MjEwNzIwOTc1Mn0.LJr_Spkjy2jHbHeOPnc07SJQPz1mqOk7Vsco95_SpUs";
+const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
+const SUPABASE_KEY = "YOUR-ANON-PUBLIC-KEY";
 /* خادم TURN من Metered: سجّل مجاناً على metered.ca ثم ضع اسم التطبيق والمفتاح */
-const METERED_APP = "rami";   /* مثال: myapp  (من العنوان myapp.metered.live) */
-const METERED_KEY = "9cccbbec4e5889b371ff14af90165ccf80eb";
+const METERED_APP = "YOUR-APP-NAME";   /* مثال: myapp  (من العنوان myapp.metered.live) */
+const METERED_KEY = "YOUR-METERED-API-KEY";
 let ICE = [{urls:"stun:stun.l.google.com:19302"}];
 let iceNote = "";
 async function loadIce(){
@@ -112,7 +112,7 @@ async function loadIce(){
 
 const $ = id => document.getElementById(id);
 const store = (k,v) => { try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k,v);}catch(e){} };
-let sb, uid, room, name, sig, live = false, seen = new Set();
+let sb, uid, room, name, sig, live = false, pushOn = false, seen = new Set();
 
 function note(t){ const n=$("note"); n.textContent=t; n.style.display="block"; setTimeout(()=>n.style.display="none",4500); }
 
@@ -135,7 +135,7 @@ async function auth(signup){
 function enter(user, r){
   uid = user.id; name = (user.user_metadata && user.user_metadata.name) || user.email.split("@")[0]; room = r; store("room", r);
   $("join").style.display="none"; $("app").style.display="flex"; $("title").textContent = "غرفة: " + room;
-  loadMessages(); listen(); startSignal();
+  loadMessages(); listen(); startSignal(); registerPush();
 }
 $("login").onclick = () => auth(false);
 $("signup").onclick = () => auth(true);
@@ -152,10 +152,25 @@ function askNotify(){
   try{ if(LN()) LN().requestPermissions(); else if(window.Notification && Notification.permission==="default") Notification.requestPermission(); }catch(e){}
 }
 async function notify(title, body){
-  if(!document.hidden) return;
+  if(!document.hidden || pushOn) return;
   try{
     if(LN()) await LN().schedule({notifications:[{id:Date.now()%2147483000,title,body}]});
     else if(window.Notification && Notification.permission==="granted"){ new Notification(title,{body}); if(navigator.vibrate) navigator.vibrate(200); }
+  }catch(e){}
+}
+
+/* ---------- إشعارات التطبيق المغلق (Firebase) ---------- */
+async function registerPush(){
+  const PN = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications;
+  if(!PN) return;
+  try{
+    let p = await PN.checkPermissions(); if(p.receive !== "granted") p = await PN.requestPermissions();
+    if(p.receive !== "granted") return;
+    PN.addListener("registration", async t => {
+      const {error} = await sb.from("device_tokens").upsert({token:t.value, uid, room, updated_at:new Date().toISOString()});
+      if(!error) pushOn = true;
+    });
+    await PN.register();
   }catch(e){}
 }
 
@@ -163,12 +178,13 @@ async function notify(title, body){
 const hue = s => { let h=0; for(const c of s) h=(h*31+c.charCodeAt(0))%360; return h; };
 function add(m){
   if(seen.has(m.id)) return; seen.add(m.id);
-  if(live && m.uid!==uid) notify(m.name, ({audio:"🎙️ رسالة صوتية",image:"📷 صورة",file:"📄 ملف"})[m.kind] || m.body);
+  if(live && m.uid!==uid) notify(m.name, ({audio:"🎙️ رسالة صوتية",image:"📷 صورة",file:"📄 ملف",call:"📞 يتصل بك"})[m.kind] || m.body);
   const d = document.createElement("div"); d.className = "m" + (m.uid===uid ? " me" : "");
   if(m.uid!==uid){ const n=document.createElement("div"); n.className="n"; n.textContent=m.name; d.appendChild(n); }
   if(m.kind==="audio"){ const a=document.createElement("audio"); a.controls=true; a.src=m.body; d.appendChild(a); }
   else if(m.kind==="image"){ const a=document.createElement("a"); a.href=m.body; a.target="_blank"; a.rel="noopener"; const i=document.createElement("img"); i.src=m.body; i.loading="lazy"; i.alt="صورة"; a.appendChild(i); d.appendChild(a); }
   else if(m.kind==="file"){ const [u,n]=m.body.split("\n"); const a=document.createElement("a"); a.href=u; a.target="_blank"; a.rel="noopener"; a.style.color="inherit"; a.textContent="📄 "+(n||"ملف"); d.appendChild(a); }
+  else if(m.kind==="call"){ const s=document.createElement("div"); s.textContent="📞 " + (m.uid===uid ? "بدأت مكالمة" : m.name + " بدأ مكالمة"); d.appendChild(s); }
   else { const s=document.createElement("div"); s.textContent=m.body; d.appendChild(s); }
   const t=document.createElement("div"); t.className="t";
   t.textContent = new Date(m.created_at).toLocaleTimeString("ar",{hour:"2-digit",minute:"2-digit"}); d.appendChild(t);
@@ -317,7 +333,7 @@ async function onSig(p){
 }
 $("callBtn").onclick = async () => {
   if(inCall){ show(false); refresh(); return; }
-  try{ await joinCall(); sendSig({t:"ring"}); }
+  try{ await joinCall(); sendSig({t:"ring"}); post("call","call"); }
   catch(e){ note("تعذّر بدء المكالمة. تأكد من إذن المايكروفون"); leave(false); }
 };
 $("cacc").onclick = async () => {
