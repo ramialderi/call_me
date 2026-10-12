@@ -91,13 +91,9 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
 <script>
-/* ===== الإعدادات: ضع بيانات مشروع Supabase هنا ===== */
-const SUPABASE_URL = "https://fjghpwtgtkvzgititwaj.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqZ2hwd3RndGt2emdpdGl0d2FqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2MzM3NTIsImV4cCI6MjEwNzIwOTc1Mn0.LJr_Spkjy2jHbHeOPnc07SJQPz1mqOk7Vsco95_SpUs";
-/* خادم TURN من Metered: سجّل مجاناً على metered.ca ثم ضع اسم التطبيق والمفتاح */
-const METERED_APP = "rami";   /* مثال: myapp  (من العنوان myapp.metered.live) */
-const METERED_KEY = "9cccbbec4e5889b371ff14af90165ccf80eb";
+/* بيانات Supabase وMetered موجودة في الملف config.js (بجانب هذا الملف) */
 let ICE = [{urls:"stun:stun.l.google.com:19302"}];
 let iceNote = "";
 async function loadIce(){
