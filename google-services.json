@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "528747862747",
+    "project_id": "whatsapp-web-clone-bcfaf",
+    "storage_bucket": "whatsapp-web-clone-bcfaf.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:528747862747:android:191a26904253908abb0afe",
+        "android_client_info": {
+          "package_name": "com.ramialderi.ramchat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAXy5rETpS8qSe7FwRCESjJPIIq84Qey6M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
