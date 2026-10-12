@@ -41,6 +41,7 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 @media (prefers-reduced-motion:reduce){#mic.rec{animation:none}}
 #call{position:fixed;inset:0;background:rgba(10,20,24,.94);color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:9}
 #call h2{margin:0;font-size:26px}
+#cstat{text-align:center;padding:0 20px}
 #call .row{display:flex;gap:18px;margin-top:18px}
 #call .row button{width:64px;height:64px;border-radius:50%;font-size:26px;color:#fff;background:#37474f}
 #call .ok{background:#1f9d55!important}#call .no{background:var(--red)!important}
@@ -86,7 +87,7 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
     <button id="cacc" class="ok" aria-label="رد">📞</button>
     <button id="cend" class="no" aria-label="إنهاء">✖</button>
   </div>
-  <audio id="remote" autoplay playsinline></audio>
+  <div id="audios"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -233,74 +234,106 @@ $("fi").onchange = async e => {
   post(img ? "image" : "file", img ? url : url + "\n" + f.name.slice(0,60));
 };
 
-/* ---------- المكالمات (WebRTC) ---------- */
-let pc, local, peer = null, offer = null, queue = [], muted = false;
+/* ---------- المكالمات الجماعية (WebRTC) ---------- */
+let local = null, inCall = false, ringing = null, muted = false;
+const peers = {};   /* uid -> {pc, name, queue} */
 function sendSig(o){ sig.send({type:"broadcast",event:"sig",payload:{...o,from:uid,name}}); }
 function startSignal(){
   sig = sb.channel("call-"+room,{config:{broadcast:{self:false}}});
-  sig.on("broadcast",{event:"sig"},({payload}) => onSig(payload)).subscribe();
+  sig.on("broadcast",{event:"sig"},({payload}) => onSig(payload).catch(()=>{})).subscribe();
 }
-function ui(title, stat, {acc=false}={}){
-  $("call").style.display="flex"; $("cname").textContent=title; $("cstat").textContent=stat;
+function show(acc){
+  $("call").style.display = "flex";
   $("cacc").style.display = acc ? "block" : "none"; $("cmute").style.display = acc ? "none" : "block";
 }
-async function makePc(){
-  local = await navigator.mediaDevices.getUserMedia({audio:true});
-  await loadIce();
-  pc = new RTCPeerConnection({iceServers:ICE});
-  local.getTracks().forEach(t => pc.addTrack(t,local));
-  pc.ontrack = e => { $("remote").srcObject = e.streams[0]; };
-  const cnt = {host:0,srflx:0,relay:0}, turn = ICE.some(i => String(i.urls).includes("turn"));
-  const show = () => { if(pc) $("dbg").textContent = "TURN:" + (turn?"yes":"NO") + " host:" + cnt.host + " srflx:" + cnt.srflx + " relay:" + cnt.relay + " ice:" + pc.iceConnectionState + (iceNote ? " | " + iceNote : ""); };
-  pc.onicecandidate = e => { if(e.candidate){ if(cnt[e.candidate.type]!==undefined) cnt[e.candidate.type]++; show(); sendSig({t:"ice",to:peer,c:e.candidate}); } };
-  pc.oniceconnectionstatechange = show; show();
-  pc.onconnectionstatechange = () => {
-    if(pc.connectionState==="connected") $("cstat").textContent="متصل";
-    if(pc.connectionState==="failed"){ note("تعذّر الربط بين الجهازين. الغالب يحتاج خادم TURN"); end(true); }
-  };
+function refresh(){
+  if(!inCall) return;
+  const names = [name, ...Object.values(peers).map(p => p.name)];
+  $("cname").textContent = "مكالمة جماعية";
+  $("cstat").textContent = names.length > 1 ? names.join("، ") : "بانتظار انضمام الآخرين…";
+  const turn = ICE.some(i => String(i.urls).includes("turn"));
+  $("dbg").textContent = "TURN:" + (turn?"yes":"NO") + (iceNote ? " | "+iceNote : "") + " | " + Object.values(peers).map(p => p.name+":"+p.pc.iceConnectionState).join(" ");
 }
-async function flush(){ for(const c of queue) try{ await pc.addIceCandidate(c);}catch(e){} queue=[]; }
-$("callBtn").onclick = async () => {
-  if(pc || offer) return;
-  try{
-    await makePc(); const o = await pc.createOffer(); await pc.setLocalDescription(o);
-    ui("اتصال صوتي","جاري الاتصال…"); sendSig({t:"offer",sdp:pc.localDescription});
-  }catch(e){ note("تعذّر بدء المكالمة. تأكد من إذن المايكروفون"); end(false); }
-};
+async function joinCall(){
+  local = await navigator.mediaDevices.getUserMedia({audio:true});
+  await loadIce(); inCall = true; ringing = null; show(false); refresh();
+  sendSig({t:"join"});
+}
+function makePeer(id, pname){
+  const pc = new RTCPeerConnection({iceServers:ICE}), p = peers[id] = {pc, name:pname, queue:[]};
+  local.getTracks().forEach(t => pc.addTrack(t, local));
+  pc.ontrack = e => {
+    let a = document.getElementById("a-"+id);
+    if(!a){ a = document.createElement("audio"); a.id = "a-"+id; a.autoplay = true; a.setAttribute("playsinline",""); $("audios").appendChild(a); }
+    a.srcObject = e.streams[0];
+  };
+  pc.onicecandidate = e => { if(e.candidate) sendSig({t:"ice",to:id,c:e.candidate}); };
+  pc.oniceconnectionstatechange = refresh;
+  pc.onconnectionstatechange = () => { if(pc.connectionState==="failed"){ note("تعذّر الربط مع " + pname); dropPeer(id); } };
+  refresh(); return p;
+}
+function dropPeer(id){
+  const p = peers[id]; if(!p) return;
+  try{ p.pc.close(); }catch(e){}
+  const a = document.getElementById("a-"+id); if(a) a.remove();
+  delete peers[id]; refresh();
+}
+async function offerTo(id, pname){
+  if(peers[id]) return;
+  const p = makePeer(id, pname), o = await p.pc.createOffer();
+  await p.pc.setLocalDescription(o); sendSig({t:"offer",to:id,sdp:p.pc.localDescription});
+}
+async function flushIce(pe){
+  for(const c of pe.queue) try{ await pe.pc.addIceCandidate(c); }catch(e){}
+  pe.queue = [];
+}
 async function onSig(p){
   if(p.to && p.to!==uid) return;
-  if(p.t==="offer"){
-    if(pc || offer) return;
-    peer = p.from; offer = p.sdp; ui(p.name, "يتصل بك…", {acc:true}); notify(p.name, "يتصل بك 📞");
-  } else if(p.t==="answer"){
-    if(!pc || peer) return; peer = p.from;
-    await pc.setRemoteDescription(p.sdp); await flush();
-  } else if(p.t==="ice"){
-    if(p.from===peer || (!peer && pc)){
-      if(pc && pc.remoteDescription){ try{ await pc.addIceCandidate(p.c);}catch(e){} } else queue.push(p.c);
-    }
+  const id = p.from;
+  if(p.t==="ring"){
+    if(inCall || ringing) return;
+    ringing = {from:id, name:p.name};
+    $("cname").textContent = p.name; $("cstat").textContent = "يدعوك لمكالمة 📞"; $("dbg").textContent = "";
+    show(true); notify(p.name, "يتصل بك 📞");
+  } else if(p.t==="join" && inCall){
+    sendSig({t:"hi",to:id});
+    if(uid > id) await offerTo(id, p.name);
+  } else if(p.t==="hi" && inCall){
+    if(uid > id) await offerTo(id, p.name);
+  } else if(p.t==="offer" && inCall){
+    const pe = peers[id] || makePeer(id, p.name);
+    await pe.pc.setRemoteDescription(p.sdp); await flushIce(pe);
+    const a = await pe.pc.createAnswer(); await pe.pc.setLocalDescription(a);
+    sendSig({t:"answer",to:id,sdp:pe.pc.localDescription});
+  } else if(p.t==="answer" && peers[id]){
+    await peers[id].pc.setRemoteDescription(p.sdp); await flushIce(peers[id]);
+  } else if(p.t==="ice" && peers[id]){
+    const pe = peers[id];
+    if(pe.pc.remoteDescription){ try{ await pe.pc.addIceCandidate(p.c); }catch(e){} } else pe.queue.push(p.c);
   } else if(p.t==="bye"){
-    if(p.from===peer || (!peer && pc===null)) end(false);
+    dropPeer(id);
+    if(ringing && ringing.from===id && !inCall){ ringing = null; $("call").style.display = "none"; }
   }
 }
+$("callBtn").onclick = async () => {
+  if(inCall){ show(false); refresh(); return; }
+  try{ await joinCall(); sendSig({t:"ring"}); }
+  catch(e){ note("تعذّر بدء المكالمة. تأكد من إذن المايكروفون"); leave(false); }
+};
 $("cacc").onclick = async () => {
-  try{
-    await makePc(); await pc.setRemoteDescription(offer); offer = null; await flush();
-    const a = await pc.createAnswer(); await pc.setLocalDescription(a);
-    sendSig({t:"answer",to:peer,sdp:pc.localDescription}); ui($("cname").textContent,"جاري الربط…");
-  }catch(e){ note("تعذّر الرد على المكالمة"); end(true); }
+  try{ await joinCall(); }catch(e){ note("تعذّر الانضمام للمكالمة"); leave(false); }
 };
 $("cmute").onclick = () => {
   muted = !muted; local && local.getAudioTracks().forEach(t => t.enabled = !muted);
   $("cmute").textContent = muted ? "🔇" : "🎤";
 };
-$("cend").onclick = () => end(true);
-function end(notify){
-  if(notify && sig) sendSig({t:"bye",to:peer});
-  if(pc){ try{pc.close();}catch(e){} }
-  if(local) local.getTracks().forEach(t=>t.stop());
-  pc = local = peer = offer = null; queue = []; muted = false; $("cmute").textContent="🎤";
-  $("remote").srcObject = null; $("dbg").textContent = ""; $("call").style.display = "none";
+$("cend").onclick = () => { if(inCall) leave(true); else { ringing = null; $("call").style.display = "none"; } };
+function leave(tell){
+  if(tell && sig) sendSig({t:"bye"});
+  Object.keys(peers).forEach(k => dropPeer(k));
+  if(local) local.getTracks().forEach(t => t.stop());
+  local = null; inCall = false; ringing = null; muted = false; $("cmute").textContent = "🎤";
+  $("dbg").textContent = ""; $("call").style.display = "none";
 }
 </script>
 </body>
