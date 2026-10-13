@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تحميل دردشة الأصدقاء</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e9eef0;--ink:#132229;--card:#fff;--me:#0f6b64;--mute:#6b7c84;--line:#d3dde1}
+@media (prefers-color-scheme:dark){:root{--bg:#10191d;--ink:#e6eef0;--card:#1b282e;--me:#14857c;--mute:#8da0a8;--line:#2a3a41}}
+*{box-sizing:border-box}
+body{margin:0;font-family:Tajawal,system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:24px 16px}
+main{max-width:480px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
+h1{margin:0 0 6px;font-size:28px}
+p{margin:0;color:var(--mute);line-height:1.7}
+.dl{display:block;text-align:center;background:var(--me);color:#fff;text-decoration:none;font-weight:700;font-size:20px;padding:16px;border-radius:14px}
+.dl:focus-visible,a:focus-visible{outline:3px solid var(--me);outline-offset:3px}
+#info{font-size:14px;color:var(--mute);text-align:center;min-height:20px}
+ol{margin:8px 0 0;padding-inline-start:22px;line-height:1.9}
+h2{margin:0 0 6px;font-size:18px}
+a{color:var(--me)}
+#qr{display:flex;justify-content:center;margin-top:12px}
+#warn{display:none;background:#c43d3d;color:#fff;padding:12px;border-radius:12px}
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>دردشة الأصدقاء</h1>
+    <p>رسائل نصية وصوتية، صور وملفات، مكالمات صوت وفيديو جماعية، في غرف خاصة بدعوة.</p>
+  </div>
+
+  <div id="warn"></div>
+  <a class="dl" id="dl" href="#">تحميل التطبيق لأندرويد (APK)</a>
+  <div id="info"></div>
+
+  <div class="card">
+    <h2>طريقة التثبيت</h2>
+    <ol>
+      <li>اضغط زر التحميل وانتظر انتهاء تنزيل الملف.</li>
+      <li>افتح الملف من الإشعارات أو من مجلد التنزيلات.</li>
+      <li>إذا ظهر طلب "السماح بالتثبيت من هذا المصدر" فوافق عليه، ثم اضغط تثبيت.</li>
+      <li>افتح التطبيق، أنشئ حساباً، ثم انضم لغرفة صديقك بالدعوة.</li>
+    </ol>
+    <p style="margin-top:10px">قد يعرض المتصفح تحذيراً عاماً لأي ملف APK من خارج المتجر، وهذا طبيعي. عند التحديث ثبّت النسخة الجديدة فوق القديمة.</p>
+  </div>
+
+  <div class="card">
+    <h2>آيفون أو كمبيوتر؟</h2>
+    <p>استخدم <a href="index.html">نسخة الويب</a> مباشرة من المتصفح. ويمكنك إضافتها للشاشة الرئيسية من قائمة المتصفح.</p>
+    <div id="qr" aria-label="رمز QR لمشاركة هذه الصفحة"></div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+/* إذا كانت الصفحة على GitHub Pages فالاكتشاف تلقائي. وإلا اكتب اسمك واسم المستودع هنا */
+const OWNER = "ramialderi", REPO = "";
+
+function repoInfo(){
+  const h = location.hostname, p = location.pathname.split("/").filter(Boolean);
+  if(h.endsWith(".github.io")){
+    const seg = p[0] && !p[0].includes(".") ? p[0] : h;
+    return {o: h.split(".")[0], r: seg};
+  }
+  return {o: OWNER, r: REPO};
+}
+const {o, r} = repoInfo();
+const dl = document.getElementById("dl");
+if(!o || !r){
+  document.getElementById("warn").style.display = "block";
+  document.getElementById("warn").textContent = "اكتب اسم المستودع في المتغير REPO أعلى السكربت داخل هذا الملف.";
+} else {
+  dl.href = "https://github.com/" + o + "/" + r + "/releases/download/latest/ramchat.apk";
+  fetch("https://api.github.com/repos/" + o + "/" + r + "/releases/tags/latest")
+    .then(x => x.ok ? x.json() : null)
+    .then(j => {
+      if(!j || !j.assets || !j.assets[0]) return;
+      const mb = (j.assets[0].size / 1048576).toFixed(1);
+      const d = new Date(j.published_at).toLocaleDateString("ar", {day:"numeric", month:"long", year:"numeric"});
+      document.getElementById("info").textContent = "الحجم " + mb + " ميجا · آخر تحديث " + d;
+    }).catch(() => {});
+}
+try{ new QRCode(document.getElementById("qr"), {text: location.href, width: 160, height: 160}); }catch(e){}
+</script>
+</body>
+</html>
