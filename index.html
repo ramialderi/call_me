@@ -49,6 +49,12 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 #dlg .box{background:var(--card);color:var(--ink);border-radius:16px;padding:20px;max-width:360px;width:100%;display:flex;flex-direction:column;gap:10px}
 #dlg code{display:block;direction:ltr;text-align:center;font-size:20px;font-weight:700;padding:10px;border-radius:10px;background:var(--bg);user-select:all}
 #dlg button{padding:12px}
+#call{overflow:auto}
+#tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;width:92%;max-width:640px}
+.tile{position:relative;aspect-ratio:3/4;background:#1d2b31;border-radius:12px;overflow:hidden;display:grid;place-items:center}
+.tile .tl{font-size:38px;font-weight:700;color:#fff}
+.tile video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.tile .tn{position:absolute;bottom:6px;inset-inline:8px;font-size:12px;text-shadow:0 1px 3px #000}
 #note{position:fixed;top:12px;inset-inline:12px;margin:auto;max-width:420px;background:var(--red);color:#fff;padding:10px 14px;border-radius:12px;display:none;z-index:10}
 </style>
 </head>
@@ -82,6 +88,7 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
   <header>
     <b id="title"></b>
     <button class="ic" id="callBtn" title="اتصال صوتي" aria-label="اتصال صوتي">📞</button>
+    <button class="ic" id="vidBtn" title="مكالمة فيديو" aria-label="مكالمة فيديو">📹</button>
     <button class="ic" id="inv" title="دعوة صديق" aria-label="دعوة صديق" style="background:var(--mute)">🔗</button>
     <button class="ic" id="back" title="غرفي" aria-label="العودة إلى الغرف" style="background:var(--mute)">☰</button>
   </header>
@@ -110,12 +117,14 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
   <h2 id="cname"></h2>
   <div id="cstat"></div>
   <div id="dbg" dir="ltr" style="font:12px monospace;opacity:.7;max-width:90%;text-align:center"></div>
+  <div id="tiles"></div>
   <div class="row">
-    <button id="cmute" aria-label="كتم">🎤</button>
-    <button id="cacc" class="ok" aria-label="رد">📞</button>
-    <button id="cend" class="no" aria-label="إنهاء">✖</button>
+    <button id="cmute" title="كتم المايكروفون" aria-label="كتم">🎤</button>
+    <button id="ccam" title="تشغيل أو إيقاف الكاميرا" aria-label="الكاميرا">🚫</button>
+    <button id="cacc" class="ok" title="رد صوتي" aria-label="رد صوتي">📞</button>
+    <button id="cvac" class="ok" title="رد بالفيديو" aria-label="رد بالفيديو">📹</button>
+    <button id="cend" class="no" title="إنهاء" aria-label="إنهاء">✖</button>
   </div>
-  <div id="audios"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -266,7 +275,7 @@ function add(m){
   if(m.kind==="audio"){ const a=document.createElement("audio"); a.controls=true; a.src=m.body; d.appendChild(a); }
   else if(m.kind==="image"){ const a=document.createElement("a"); a.target="_blank"; a.rel="noopener"; const i=document.createElement("img"); i.loading="lazy"; i.alt="صورة"; a.appendChild(i); d.appendChild(a); signed(m.body).then(u => { if(u){ a.href=u; i.src=u; } }); }
   else if(m.kind==="file"){ const [u,n]=m.body.split("\n"); const a=document.createElement("a"); a.target="_blank"; a.rel="noopener"; a.style.color="inherit"; a.textContent="📄 "+(n||"ملف"); d.appendChild(a); signed(u).then(x => { if(x) a.href=x; }); }
-  else if(m.kind==="call"){ const s=document.createElement("div"); s.textContent="📞 " + (m.uid===uid ? "بدأت مكالمة" : m.name + " بدأ مكالمة"); d.appendChild(s); }
+  else if(m.kind==="call"){ const s=document.createElement("div"); const vid = m.body==="video"; s.textContent = (vid?"📹 ":"📞 ") + (m.uid===uid ? "بدأت" : m.name + " بدأ") + (vid ? " مكالمة فيديو" : " مكالمة"); d.appendChild(s); }
   else { const s=document.createElement("div"); s.textContent=m.body; d.appendChild(s); }
   const t=document.createElement("div"); t.className="t";
   t.textContent = new Date(m.created_at).toLocaleTimeString("ar",{hour:"2-digit",minute:"2-digit"}); d.appendChild(t);
@@ -331,9 +340,12 @@ $("fi").onchange = async e => {
   post(img ? "image" : "file", img ? path : path + "\n" + f.name.slice(0,60));
 };
 
-/* ---------- المكالمات الجماعية (WebRTC) ---------- */
+/* ---------- المكالمات الجماعية صوت وفيديو (WebRTC) ---------- */
 let local = null, inCall = false, ringing = null, muted = false;
-const peers = {};   /* uid -> {pc, name, queue} */
+const peers = {};   /* uid -> {pc, name, queue, stream} */
+const gum = c => navigator.mediaDevices.getUserMedia(c);
+const vTrack = () => local && local.getVideoTracks()[0];
+const VCON = {facingMode:"user", width:{ideal:640}, height:{ideal:480}};
 function sendSig(o){ sig.send({type:"broadcast",event:"sig",payload:{...o,from:uid,name}}); }
 function startSignal(){
   sig = sb.channel("call-"+room,{config:{private:true,broadcast:{self:false}}});
@@ -341,7 +353,25 @@ function startSignal(){
 }
 function show(acc){
   $("call").style.display = "flex";
-  $("cacc").style.display = acc ? "block" : "none"; $("cmute").style.display = acc ? "none" : "block";
+  ["cacc","cvac"].forEach(i => $(i).style.display = acc ? "block" : "none");
+  ["cmute","ccam"].forEach(i => $(i).style.display = acc ? "none" : "block");
+  $("tiles").style.display = acc ? "none" : "grid";
+}
+function tile(id, label){
+  let t = document.getElementById("t-"+id);
+  if(!t){
+    t = document.createElement("div"); t.className = "tile"; t.id = "t-"+id;
+    const l = document.createElement("div"); l.className = "tl"; l.textContent = [...label][0] || "?";
+    const v = document.createElement("video"); v.autoplay = true; v.setAttribute("playsinline",""); v.style.opacity = 0;
+    const n = document.createElement("div"); n.className = "tn"; n.textContent = label;
+    t.append(l, v, n); $("tiles").appendChild(t);
+  }
+  return t.querySelector("video");
+}
+function setSelf(){
+  const v = document.querySelector("#t-me video"), vt = vTrack();
+  if(v){ v.srcObject = vt ? new MediaStream([vt]) : null; v.style.opacity = vt ? 1 : 0; }
+  $("ccam").textContent = vt ? "📹" : "🚫";
 }
 function refresh(){
   if(!inCall) return;
@@ -351,33 +381,47 @@ function refresh(){
   const turn = ICE.some(i => String(i.urls).includes("turn"));
   $("dbg").textContent = "TURN:" + (turn?"yes":"NO") + (iceNote ? " | "+iceNote : "") + " | " + Object.values(peers).map(p => p.name+":"+p.pc.iceConnectionState).join(" ");
 }
-async function joinCall(){
-  local = await navigator.mediaDevices.getUserMedia({audio:true});
-  await loadIce(); inCall = true; ringing = null; show(false); refresh();
-  sendSig({t:"join"});
+async function joinCall(video){
+  try{ local = await gum({audio:true, video: video ? VCON : false}); }
+  catch(e){ if(!video) throw e; note("تعذّر تشغيل الكاميرا، سنكمل بالصوت فقط"); local = await gum({audio:true}); }
+  await loadIce(); inCall = true; ringing = null; show(false);
+  const sv = tile("me", name); sv.muted = true; sv.style.transform = "scaleX(-1)"; setSelf();
+  refresh(); sendSig({t:"join"});
+}
+function capVideo(s){
+  try{ const pr = s.getParameters(); if(!pr.encodings || !pr.encodings.length) pr.encodings = [{}]; pr.encodings[0].maxBitrate = 350000; s.setParameters(pr).catch(()=>{}); }catch(e){}
 }
 function makePeer(id, pname){
-  const pc = new RTCPeerConnection({iceServers:ICE}), p = peers[id] = {pc, name:pname, queue:[]};
-  local.getTracks().forEach(t => pc.addTrack(t, local));
+  const pc = new RTCPeerConnection({iceServers:ICE}), p = peers[id] = {pc, name:pname, queue:[], stream:new MediaStream()};
+  const v = tile(id, pname); v.srcObject = p.stream;
   pc.ontrack = e => {
-    let a = document.getElementById("a-"+id);
-    if(!a){ a = document.createElement("audio"); a.id = "a-"+id; a.autoplay = true; a.setAttribute("playsinline",""); $("audios").appendChild(a); }
-    a.srcObject = e.streams[0];
+    p.stream.addTrack(e.track);
+    if(e.track.kind === "video"){
+      const upd = () => { v.style.opacity = e.track.muted ? 0 : 1; };
+      e.track.onmute = upd; e.track.onunmute = upd; upd();
+    }
+    v.play().catch(()=>{});
   };
   pc.onicecandidate = e => { if(e.candidate) sendSig({t:"ice",to:id,c:e.candidate}); };
-  pc.oniceconnectionstatechange = refresh;
+  pc.oniceconnectionstatechange = () => {
+    refresh();
+    if(pc.iceConnectionState === "connected") pc.getTransceivers().forEach(t => { if(t.receiver.track.kind === "video") capVideo(t.sender); });
+  };
   pc.onconnectionstatechange = () => { if(pc.connectionState==="failed"){ note("تعذّر الربط مع " + pname); dropPeer(id); } };
   refresh(); return p;
 }
 function dropPeer(id){
   const p = peers[id]; if(!p) return;
   try{ p.pc.close(); }catch(e){}
-  const a = document.getElementById("a-"+id); if(a) a.remove();
+  const t = document.getElementById("t-"+id); if(t) t.remove();
   delete peers[id]; refresh();
 }
 async function offerTo(id, pname){
   if(peers[id]) return;
-  const p = makePeer(id, pname), o = await p.pc.createOffer();
+  const p = makePeer(id, pname), vt = vTrack();
+  p.pc.addTransceiver(local.getAudioTracks()[0], {direction:"sendrecv"});
+  if(vt) p.pc.addTransceiver(vt, {direction:"sendrecv"}); else p.pc.addTransceiver("video", {direction:"sendrecv"});
+  const o = await p.pc.createOffer();
   await p.pc.setLocalDescription(o); sendSig({t:"offer",to:id,sdp:p.pc.localDescription});
 }
 async function flushIce(pe){
@@ -390,8 +434,8 @@ async function onSig(p){
   if(p.t==="ring"){
     if(inCall || ringing) return;
     ringing = {from:id, name:p.name};
-    $("cname").textContent = p.name; $("cstat").textContent = "يدعوك لمكالمة 📞"; $("dbg").textContent = "";
-    show(true); notify(p.name, "يتصل بك 📞");
+    $("cname").textContent = p.name; $("cstat").textContent = p.video ? "يدعوك لمكالمة فيديو 📹" : "يدعوك لمكالمة 📞"; $("dbg").textContent = "";
+    show(true); notify(p.name, p.video ? "مكالمة فيديو 📹" : "يتصل بك 📞");
   } else if(p.t==="join" && inCall){
     sendSig({t:"hi",to:id});
     if(uid > id) await offerTo(id, p.name);
@@ -400,6 +444,11 @@ async function onSig(p){
   } else if(p.t==="offer" && inCall){
     const pe = peers[id] || makePeer(id, p.name);
     await pe.pc.setRemoteDescription(p.sdp); await flushIce(pe);
+    for(const t of pe.pc.getTransceivers()){
+      const k = t.receiver.track.kind, tr = k === "audio" ? local.getAudioTracks()[0] : vTrack();
+      t.direction = "sendrecv";
+      if(tr) await t.sender.replaceTrack(tr);
+    }
     const a = await pe.pc.createAnswer(); await pe.pc.setLocalDescription(a);
     sendSig({t:"answer",to:id,sdp:pe.pc.localDescription});
   } else if(p.t==="answer" && peers[id]){
@@ -412,14 +461,37 @@ async function onSig(p){
     if(ringing && ringing.from===id && !inCall){ ringing = null; $("call").style.display = "none"; }
   }
 }
-$("callBtn").onclick = async () => {
+async function startCall(video){
   if(inCall){ show(false); refresh(); return; }
-  try{ await joinCall(); sendSig({t:"ring"}); post("call","call"); }
+  try{ await joinCall(video); sendSig({t:"ring",video:!!vTrack()}); post("call", vTrack() ? "video" : "call"); }
   catch(e){ note("تعذّر بدء المكالمة. تأكد من إذن المايكروفون"); leave(false); }
-};
-$("cacc").onclick = async () => {
-  try{ await joinCall(); }catch(e){ note("تعذّر الانضمام للمكالمة"); leave(false); }
-};
+}
+async function acceptCall(video){
+  try{ await joinCall(video); }catch(e){ note("تعذّر الانضمام للمكالمة"); leave(false); }
+}
+function allVideoSenders(){
+  const out = [];
+  Object.values(peers).forEach(p => p.pc.getTransceivers().forEach(t => { if(t.receiver.track.kind === "video") out.push(t.sender); }));
+  return out;
+}
+async function toggleCam(){
+  const cur = vTrack();
+  if(cur){
+    cur.stop(); local.removeTrack(cur);
+    await Promise.all(allVideoSenders().map(s => s.replaceTrack(null)));
+  } else {
+    try{
+      const t = (await gum({video:VCON})).getVideoTracks()[0]; local.addTrack(t);
+      await Promise.all(allVideoSenders().map(s => { capVideo(s); return s.replaceTrack(t); }));
+    }catch(e){ note("تعذّر تشغيل الكاميرا"); }
+  }
+  setSelf();
+}
+$("callBtn").onclick = () => startCall(false);
+$("vidBtn").onclick = () => startCall(true);
+$("cacc").onclick = () => acceptCall(false);
+$("cvac").onclick = () => acceptCall(true);
+$("ccam").onclick = toggleCam;
 $("cmute").onclick = () => {
   muted = !muted; local && local.getAudioTracks().forEach(t => t.enabled = !muted);
   $("cmute").textContent = muted ? "🔇" : "🎤";
@@ -430,7 +502,7 @@ function leave(tell){
   Object.keys(peers).forEach(k => dropPeer(k));
   if(local) local.getTracks().forEach(t => t.stop());
   local = null; inCall = false; ringing = null; muted = false; $("cmute").textContent = "🎤";
-  $("dbg").textContent = ""; $("call").style.display = "none";
+  $("tiles").textContent = ""; $("dbg").textContent = ""; $("call").style.display = "none";
 }
 </script>
 </body>
