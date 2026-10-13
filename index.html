@@ -45,6 +45,10 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 #call .row{display:flex;gap:18px;margin-top:18px}
 #call .row button{width:64px;height:64px;border-radius:50%;font-size:26px;color:#fff;background:#37474f}
 #call .ok{background:#1f9d55!important}#call .no{background:var(--red)!important}
+#dlg{position:fixed;inset:0;background:rgba(10,20,24,.7);display:none;align-items:center;justify-content:center;z-index:11;padding:20px}
+#dlg .box{background:var(--card);color:var(--ink);border-radius:16px;padding:20px;max-width:360px;width:100%;display:flex;flex-direction:column;gap:10px}
+#dlg code{display:block;direction:ltr;text-align:center;font-size:20px;font-weight:700;padding:10px;border-radius:10px;background:var(--bg);user-select:all}
+#dlg button{padding:12px}
 #note{position:fixed;top:12px;inset-inline:12px;margin:auto;max-width:420px;background:var(--red);color:#fff;padding:10px 14px;border-radius:12px;display:none;z-index:10}
 </style>
 </head>
@@ -88,6 +92,17 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
     <button class="ic" id="mic" title="تسجيل رسالة صوتية" aria-label="تسجيل رسالة صوتية">🎙️</button>
     <input id="txt" placeholder="اكتب رسالة" autocomplete="off">
     <button class="ic" id="send" aria-label="إرسال">➤</button>
+  </div>
+</div>
+
+<div id="dlg" role="dialog" aria-modal="true">
+  <div class="box">
+    <b>دعوة للغرفة</b>
+    <div>اسم الغرفة</div><code id="dRoom"></code>
+    <div>رمز الدعوة</div><code id="dInv"></code>
+    <button class="go" id="dCopy">نسخ</button>
+    <button class="f" id="dShare">مشاركة</button>
+    <button class="f" id="dClose">إغلاق</button>
   </div>
 </div>
 
@@ -165,7 +180,18 @@ async function enter(r){
   $("title").textContent = "غرفة: " + room;
   loadMessages(); listen(); startSignal(); registerPush();
 }
-function shareInvite(id, inv){ prompt("انسخ وأرسل لصديقك:", "الغرفة: " + id + " | الدعوة: " + inv); }
+let inviteText = "";
+function shareInvite(id, inv){
+  inviteText = "انضم إلى غرفتي في تطبيق الدردشة\nالغرفة: " + id + "\nرمز الدعوة: " + inv;
+  $("dRoom").textContent = id; $("dInv").textContent = inv; $("dlg").style.display = "flex";
+}
+$("dCopy").onclick = async () => {
+  try{ await navigator.clipboard.writeText(inviteText); }
+  catch(e){ const t = document.createElement("textarea"); t.value = inviteText; document.body.appendChild(t); t.select(); try{ document.execCommand("copy"); }catch(_){} t.remove(); }
+  $("dCopy").textContent = "تم النسخ ✓"; setTimeout(() => $("dCopy").textContent = "نسخ", 2000);
+};
+$("dShare").onclick = () => { if(navigator.share) navigator.share({text:inviteText}).catch(()=>{}); else $("dCopy").click(); };
+$("dClose").onclick = () => $("dlg").style.display = "none";
 $("mk").onclick = async () => {
   const id = $("newRoom").value.trim().toLowerCase();
   if(!/^[a-z0-9_-]{3,40}$/.test(id)) return note("اسم الغرفة: حروف إنجليزية صغيرة وأرقام و - _ فقط (3 إلى 40)");
