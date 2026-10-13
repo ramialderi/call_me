@@ -55,6 +55,16 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 .tile .tl{font-size:38px;font-weight:700;color:#fff}
 .tile video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .tile .tn{position:absolute;bottom:6px;inset-inline:8px;font-size:12px;text-shadow:0 1px 3px #000}
+.q{border-inline-start:3px solid var(--mute);padding:2px 8px;margin-bottom:4px;font-size:12px;opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.rx{display:flex;gap:4px;flex-wrap:wrap}.rx:empty{display:none}
+.rx span{background:rgba(127,127,127,.22);border-radius:10px;padding:0 6px;font-size:13px;margin-top:3px}
+#rbar{display:none;align-items:center;gap:8px;padding:6px 12px;background:var(--card);border-top:1px solid var(--line);font-size:13px;color:var(--mute)}
+#rbar span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#rbar button{background:none;font-size:18px}
+#sheet{position:fixed;inset:0;background:rgba(10,20,24,.6);display:none;align-items:flex-end;justify-content:center;z-index:11}
+#sheet .box{background:var(--card);width:100%;max-width:720px;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px}
+#emo{display:flex;justify-content:space-around}
+#emo button{background:none;font-size:30px;padding:6px}
 #note{position:fixed;top:12px;inset-inline:12px;margin:auto;max-width:420px;background:var(--red);color:#fff;padding:10px 14px;border-radius:12px;display:none;z-index:10}
 </style>
 </head>
@@ -93,12 +103,23 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
     <button class="ic" id="back" title="غرفي" aria-label="العودة إلى الغرف" style="background:var(--mute)">☰</button>
   </header>
   <div id="list"></div>
+  <div id="typing" aria-live="polite" style="padding:0 14px;min-height:18px;font-size:12px;color:var(--mute)"></div>
+  <div id="rbar"><span id="rtxt"></span><button id="rx0" aria-label="إلغاء الرد">✕</button></div>
   <div id="bar">
     <button class="ic" id="attach" title="إرفاق صورة أو ملف" aria-label="إرفاق صورة أو ملف">📎</button>
     <input type="file" id="fi" hidden>
     <button class="ic" id="mic" title="تسجيل رسالة صوتية" aria-label="تسجيل رسالة صوتية">🎙️</button>
     <input id="txt" placeholder="اكتب رسالة" autocomplete="off">
     <button class="ic" id="send" aria-label="إرسال">➤</button>
+  </div>
+</div>
+
+<div id="sheet" role="dialog" aria-modal="true">
+  <div class="box">
+    <div id="emo"></div>
+    <button class="f" id="shReply">↩ رد على الرسالة</button>
+    <button class="f" id="shDel">🗑 حذف رسالتي</button>
+    <button class="f" id="shClose">إغلاق</button>
   </div>
 </div>
 
@@ -267,39 +288,104 @@ async function signed(b){
   return data ? (sCache[path] = data.signedUrl) : null;
 }
 const hue = s => { let h=0; for(const c of s) h=(h*31+c.charCodeAt(0))%360; return h; };
-function add(m){
-  if(seen.has(m.id)) return; seen.add(m.id);
-  if(live && m.uid!==uid) notify(m.name, ({audio:"🎙️ رسالة صوتية",image:"📷 صورة",file:"📄 ملف",call:"📞 يتصل بك"})[m.kind] || m.body);
-  const d = document.createElement("div"); d.className = "m" + (m.uid===uid ? " me" : "");
+const msgs = {}, els = {}, reacts = {}, rxEl = {};
+let replyTo = null, cur = null, lastTy = 0, tyT;
+const snip = m => !m ? "رسالة" : ({audio:"🎙️ رسالة صوتية",image:"📷 صورة",file:"📄 ملف",call:"📞 يتصل بك"})[m.kind] || String(m.body).slice(0,60);
+function drawReacts(id){
+  const rx = rxEl[id]; if(!rx) return; rx.textContent = "";
+  const c = {}; Object.values(reacts[id] || {}).forEach(e => { if(e) c[e] = (c[e]||0) + 1; });
+  Object.entries(c).forEach(([e,n]) => { const s = document.createElement("span"); s.textContent = e + (n>1 ? " "+n : ""); rx.appendChild(s); });
+}
+function fill(d, m){
+  d.textContent = "";
   if(m.uid!==uid){ const n=document.createElement("div"); n.className="n"; n.textContent=m.name; d.appendChild(n); }
-  if(m.kind==="audio"){ const a=document.createElement("audio"); a.controls=true; a.src=m.body; d.appendChild(a); }
-  else if(m.kind==="image"){ const a=document.createElement("a"); a.target="_blank"; a.rel="noopener"; const i=document.createElement("img"); i.loading="lazy"; i.alt="صورة"; a.appendChild(i); d.appendChild(a); signed(m.body).then(u => { if(u){ a.href=u; i.src=u; } }); }
-  else if(m.kind==="file"){ const [u,n]=m.body.split("\n"); const a=document.createElement("a"); a.target="_blank"; a.rel="noopener"; a.style.color="inherit"; a.textContent="📄 "+(n||"ملف"); d.appendChild(a); signed(u).then(x => { if(x) a.href=x; }); }
-  else if(m.kind==="call"){ const s=document.createElement("div"); const vid = m.body==="video"; s.textContent = (vid?"📹 ":"📞 ") + (m.uid===uid ? "بدأت" : m.name + " بدأ") + (vid ? " مكالمة فيديو" : " مكالمة"); d.appendChild(s); }
-  else { const s=document.createElement("div"); s.textContent=m.body; d.appendChild(s); }
+  if(m.deleted){ const s=document.createElement("div"); s.style.opacity=.6; s.textContent="🚫 تم حذف هذه الرسالة"; d.appendChild(s); }
+  else {
+    if(m.reply_to){ const q=document.createElement("div"); q.className="q"; const o=msgs[m.reply_to]; q.textContent=(o ? o.name + ": " : "") + snip(o); d.appendChild(q); }
+    if(m.kind==="audio"){ const a=document.createElement("audio"); a.controls=true; a.src=m.body; d.appendChild(a); }
+    else if(m.kind==="image"){ const a=document.createElement("a"); a.target="_blank"; a.rel="noopener"; const i=document.createElement("img"); i.loading="lazy"; i.alt="صورة"; a.appendChild(i); d.appendChild(a); signed(m.body).then(u => { if(u){ a.href=u; i.src=u; } }); }
+    else if(m.kind==="file"){ const [u,n]=m.body.split("\n"); const a=document.createElement("a"); a.target="_blank"; a.rel="noopener"; a.style.color="inherit"; a.textContent="📄 "+(n||"ملف"); d.appendChild(a); signed(u).then(x => { if(x) a.href=x; }); }
+    else if(m.kind==="call"){ const s=document.createElement("div"); const vid = m.body==="video"; s.textContent = (vid?"📹 ":"📞 ") + (m.uid===uid ? "بدأت" : m.name + " بدأ") + (vid ? " مكالمة فيديو" : " مكالمة"); d.appendChild(s); }
+    else { const s=document.createElement("div"); s.textContent=m.body; d.appendChild(s); }
+  }
   const t=document.createElement("div"); t.className="t";
   t.textContent = new Date(m.created_at).toLocaleTimeString("ar",{hour:"2-digit",minute:"2-digit"}); d.appendChild(t);
+  const rx = rxEl[m.id] || (rxEl[m.id] = document.createElement("div")); rx.className = "rx"; d.appendChild(rx); drawReacts(m.id);
+  d.onclick = e => { if(m.deleted || m.kind==="call" || e.target.closest("a,audio")) return; openSheet(m); };
+}
+function add(m){
+  if(seen.has(m.id)) return; seen.add(m.id); msgs[m.id] = m;
+  if(live && m.uid!==uid && !m.deleted) notify(m.name, snip(m));
+  const d = document.createElement("div"); d.className = "m" + (m.uid===uid ? " me" : ""); els[m.id] = d;
+  fill(d, m);
   const l=$("list"), near = l.scrollHeight-l.scrollTop-l.clientHeight < 120 || m.uid===uid;
   const w=document.createElement("div"); w.className="r"+(m.uid===uid?" me":"");
   if(m.uid!==uid){ const a=document.createElement("div"); a.className="av"; a.textContent=[...m.name][0]||"?"; a.style.background="hsl("+hue(m.name)+" 45% 38%)"; w.appendChild(a); }
   w.appendChild(d); l.appendChild(w); if(near) l.scrollTop = l.scrollHeight;
 }
+function openSheet(m){
+  cur = m; const e = $("emo"); e.textContent = "";
+  ["👍","❤️","😂","😮","😢","🙏"].forEach(x => {
+    const b = document.createElement("button"); b.textContent = x; b.setAttribute("aria-label","تفاعل " + x);
+    b.onclick = () => { react(m, x); closeSheet(); }; e.appendChild(b);
+  });
+  $("shDel").style.display = m.uid===uid ? "block" : "none";
+  $("sheet").style.display = "flex";
+}
+const closeSheet = () => { $("sheet").style.display = "none"; };
+async function react(m, x){
+  const mine = (reacts[m.id] || {})[uid];
+  const {error} = await sb.from("reactions").upsert({msg_id:m.id, room, uid, emoji: mine===x ? "" : x});
+  if(error) note("تعذّر التفاعل: " + error.message);
+}
+function clearReply(){ replyTo = null; $("rbar").style.display = "none"; }
+$("shClose").onclick = closeSheet;
+$("shReply").onclick = () => {
+  replyTo = {id:cur.id}; $("rtxt").textContent = "رد على " + cur.name + ": " + snip(cur);
+  $("rbar").style.display = "flex"; closeSheet(); $("txt").focus();
+};
+$("shDel").onclick = async () => {
+  const {error} = await sb.from("messages").update({deleted:true}).eq("id",cur.id); closeSheet();
+  if(error) note("تعذّر الحذف: " + error.message);
+};
+$("rx0").onclick = clearReply;
+function showTyping(n){
+  $("typing").textContent = n + " يكتب…"; clearTimeout(tyT); tyT = setTimeout(() => $("typing").textContent = "", 3000);
+}
 async function loadMessages(){
   const {data,error} = await sb.from("messages").select("*").eq("room",room).order("id",{ascending:false}).limit(80);
   if(error) return note("تعذّر تحميل الرسائل: " + error.message);
   data.reverse().forEach(add); live = true;
+  if(data.length){
+    const {data:rs} = await sb.from("reactions").select("msg_id,uid,emoji").eq("room",room).gte("msg_id",data[0].id);
+    (rs || []).forEach(x => { (reacts[x.msg_id] = reacts[x.msg_id] || {})[x.uid] = x.emoji; drawReacts(x.msg_id); });
+  }
 }
 function listen(){
-  sb.channel("msgs-"+room).on("postgres_changes",
-    {event:"INSERT",schema:"public",table:"messages",filter:"room=eq."+room}, p => add(p.new)).subscribe();
+  const f = {schema:"public", filter:"room=eq."+room};
+  sb.channel("msgs-"+room)
+    .on("postgres_changes",{event:"INSERT",table:"messages",...f}, p => add(p.new))
+    .on("postgres_changes",{event:"UPDATE",table:"messages",...f}, p => { const m = p.new; msgs[m.id] = m; if(els[m.id]) fill(els[m.id], m); })
+    .subscribe();
+  sb.channel("rx-"+room)
+    .on("postgres_changes",{event:"*",table:"reactions",...f}, p => {
+      const x = p.new; if(!x || !x.msg_id) return;
+      (reacts[x.msg_id] = reacts[x.msg_id] || {})[x.uid] = x.emoji; drawReacts(x.msg_id);
+    })
+    .subscribe();
 }
 async function post(kind, body){
-  const {error} = await sb.from("messages").insert({room, uid, name, kind, body});
+  const row = {room, uid, name, kind, body};
+  if(replyTo && kind !== "call"){ row.reply_to = replyTo.id; clearReply(); }
+  const {error} = await sb.from("messages").insert(row);
   if(error) note("لم تُرسل الرسالة: " + error.message);
 }
 function sendText(){ const v=$("txt").value.trim(); if(!v) return; $("txt").value=""; post("text",v); }
 $("send").onclick = sendText;
 $("txt").onkeydown = e => { if(e.key==="Enter") sendText(); };
+$("txt").oninput = () => {
+  if(sig && Date.now() - lastTy > 2500){ lastTy = Date.now(); sig.send({type:"broadcast",event:"typing",payload:{name}}); }
+};
 
 /* ---------- الرسائل الصوتية ---------- */
 let rec, chunks, recTimer;
@@ -349,7 +435,9 @@ const VCON = {facingMode:"user", width:{ideal:640}, height:{ideal:480}};
 function sendSig(o){ sig.send({type:"broadcast",event:"sig",payload:{...o,from:uid,name}}); }
 function startSignal(){
   sig = sb.channel("call-"+room,{config:{private:true,broadcast:{self:false}}});
-  sig.on("broadcast",{event:"sig"},({payload}) => onSig(payload).catch(()=>{})).subscribe();
+  sig.on("broadcast",{event:"sig"},({payload}) => onSig(payload).catch(()=>{}))
+     .on("broadcast",{event:"typing"},({payload}) => showTyping(payload.name))
+     .subscribe();
 }
 function show(acc){
   $("call").style.display = "flex";
