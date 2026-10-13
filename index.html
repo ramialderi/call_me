@@ -383,7 +383,7 @@ function refresh(){
 }
 async function joinCall(video){
   try{ local = await gum({audio:true, video: video ? VCON : false}); }
-  catch(e){ if(!video) throw e; note("تعذّر تشغيل الكاميرا، سنكمل بالصوت فقط"); local = await gum({audio:true}); }
+  catch(e){ if(!video) throw e; note("تعذّر تشغيل الكاميرا (" + e.name + ")، سنكمل بالصوت فقط"); local = await gum({audio:true}); }
   await loadIce(); inCall = true; ringing = null; show(false);
   const sv = tile("me", name); sv.muted = true; sv.style.transform = "scaleX(-1)"; setSelf();
   refresh(); sendSig({t:"join"});
@@ -483,7 +483,7 @@ async function toggleCam(){
     try{
       const t = (await gum({video:VCON})).getVideoTracks()[0]; local.addTrack(t);
       await Promise.all(allVideoSenders().map(s => { capVideo(s); return s.replaceTrack(t); }));
-    }catch(e){ note("تعذّر تشغيل الكاميرا"); }
+    }catch(e){ note("تعذّر تشغيل الكاميرا (" + e.name + ")"); }
   }
   setSelf();
 }
