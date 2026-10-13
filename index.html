@@ -52,7 +52,7 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 #call{overflow:auto}
 #tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;width:92%;max-width:640px}
 .tile{position:relative;aspect-ratio:3/4;background:#1d2b31;border-radius:12px;overflow:hidden;display:grid;place-items:center}
-.tile .tl{font-size:38px;font-weight:700;color:#fff}
+.tile .tl{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;font-size:38px;font-weight:700;color:#fff;background:#37474f}
 .tile video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .tile .tn{position:absolute;bottom:6px;inset-inline:8px;font-size:12px;text-shadow:0 1px 3px #000}
 .q{border-inline-start:3px solid var(--mute);padding:2px 8px;margin-bottom:4px;font-size:12px;opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
@@ -85,6 +85,11 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 
 <div id="rooms" style="display:none">
   <h1>غرفك</h1>
+  <div style="display:flex;align-items:center;gap:12px">
+    <div class="av" id="myav" style="width:64px;height:64px;font-size:26px" aria-hidden="true"></div>
+    <button class="f" id="chPhoto">تغيير صورتي</button>
+    <input type="file" id="pf" accept="image/*" hidden>
+  </div>
   <div id="mine"></div>
   <p>إنشاء غرفة جديدة</p>
   <input class="f" id="newRoom" placeholder="اسم الغرفة (إنجليزي وأرقام)" maxlength="40" autocapitalize="none" dir="ltr">
@@ -194,6 +199,7 @@ function start(user){
 }
 async function showRooms(){
   $("join").style.display="none"; $("app").style.display="none"; $("rooms").style.display="flex";
+  const mv = $("myav"); mv.style.background = "hsl(" + hue(name) + " 45% 38%)"; regAv(mv, uid, name);
   const {data,error} = await sb.from("room_members").select("room").eq("uid",uid);
   const box = $("mine"); box.textContent = "";
   if(error) return note(error.message);
@@ -290,6 +296,33 @@ async function signed(b){
   return data ? (sCache[path] = data.signedUrl) : null;
 }
 const hue = s => { let h=0; for(const c of s) h=(h*31+c.charCodeAt(0))%360; return h; };
+/* ---------- الصور الشخصية ---------- */
+const avatars = {}, avAsked = {}, avEls = {};
+function paint(el, u, label){
+  const a = avatars[u];
+  if(a){ el.style.backgroundImage = "url(" + a + ")"; el.style.backgroundSize = "cover"; el.style.backgroundPosition = "center"; el.textContent = ""; }
+  else el.textContent = [...label][0] || "?";
+}
+function ensureAvatar(u){
+  if(avAsked[u]) return; avAsked[u] = true;
+  sb.from("profiles").select("avatar").eq("uid",u).maybeSingle().then(({data}) => {
+    if(data && data.avatar){ avatars[u] = data.avatar; (avEls[u] || []).forEach(x => paint(x.el, u, x.label)); }
+  });
+}
+function regAv(el, u, label){ (avEls[u] = avEls[u] || []).push({el, label}); paint(el, u, label); ensureAvatar(u); }
+$("chPhoto").onclick = () => $("pf").click();
+$("pf").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if(!f) return;
+  try{
+    const b = await createImageBitmap(f), side = Math.min(b.width, b.height);
+    const c = document.createElement("canvas"); c.width = c.height = 128;
+    c.getContext("2d").drawImage(b, (b.width-side)/2, (b.height-side)/2, side, side, 0, 0, 128, 128);
+    const url = c.toDataURL("image/jpeg", 0.8);
+    const {error} = await sb.from("profiles").upsert({uid, avatar:url, updated_at:new Date().toISOString()});
+    if(error) return note("تعذّر حفظ الصورة: " + error.message);
+    avatars[uid] = url; (avEls[uid] || []).forEach(x => paint(x.el, uid, x.label));
+  }catch(err){ note("تعذّر قراءة الصورة"); }
+};
 const msgs = {}, els = {}, reacts = {}, rxEl = {}, tkEl = {}, readBy = {};
 let myLast = 0, others = 0, rdT;
 function setTick(id){
@@ -351,7 +384,7 @@ function add(m){
   fill(d, m);
   const l=$("list"), near = l.scrollHeight-l.scrollTop-l.clientHeight < 120 || m.uid===uid;
   const w=document.createElement("div"); w.className="r"+(m.uid===uid?" me":"");
-  if(m.uid!==uid){ const a=document.createElement("div"); a.className="av"; a.textContent=[...m.name][0]||"?"; a.style.background="hsl("+hue(m.name)+" 45% 38%)"; w.appendChild(a); }
+  if(m.uid!==uid){ const a=document.createElement("div"); a.className="av"; a.style.background="hsl("+hue(m.name)+" 45% 38%)"; regAv(a, m.uid, m.name); w.appendChild(a); }
   w.appendChild(d); l.appendChild(w); if(near) l.scrollTop = l.scrollHeight;
 }
 function openSheet(m){
@@ -487,7 +520,7 @@ function tile(id, label){
   let t = document.getElementById("t-"+id);
   if(!t){
     t = document.createElement("div"); t.className = "tile"; t.id = "t-"+id;
-    const l = document.createElement("div"); l.className = "tl"; l.textContent = [...label][0] || "?";
+    const l = document.createElement("div"); l.className = "tl"; regAv(l, id === "me" ? uid : id, label);
     const v = document.createElement("video"); v.autoplay = true; v.setAttribute("playsinline",""); v.style.opacity = 0;
     const n = document.createElement("div"); n.className = "tn"; n.textContent = label;
     t.append(l, v, n); $("tiles").appendChild(t);
