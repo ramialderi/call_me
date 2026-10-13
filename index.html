@@ -14,9 +14,9 @@ body{font-family:Tajawal,system-ui,sans-serif;background:var(--bg);color:var(--i
 button{font:inherit;color:inherit;cursor:pointer;border:0;border-radius:12px}
 input{font:inherit;color:inherit}
 :focus-visible{outline:3px solid var(--me);outline-offset:2px}
-#join{max-width:360px;margin:0 auto;padding:12vh 20px 0;display:flex;flex-direction:column;gap:12px}
-#join h1{font-size:28px;margin:0 0 4px}
-#join p{margin:0 0 8px;color:var(--mute)}
+#join,#rooms{max-width:360px;margin:0 auto;padding:12vh 20px 0;display:flex;flex-direction:column;gap:12px}
+#join h1,#rooms h1{font-size:28px;margin:0 0 4px}
+#join p,#rooms p{margin:0 0 8px;color:var(--mute)}
 .f{padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
 .go{background:var(--me);color:var(--meink);padding:14px;font-weight:700}
 #app{display:none;height:100%;flex-direction:column;max-width:720px;margin:0 auto}
@@ -53,20 +53,33 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 
 <form id="join" onsubmit="return false">
   <h1>دردشة الأصدقاء</h1>
-  <p>سجّل دخولك، ثم اكتب رمز الغرفة المشترك مع أصدقائك.</p>
+  <p>سجّل دخولك لتدخل غرفك.</p>
   <input class="f" id="name" placeholder="اسمك (للحساب الجديد فقط)" maxlength="20" autocomplete="nickname">
   <input class="f" id="email" type="email" placeholder="البريد الإلكتروني" autocomplete="email" dir="ltr">
   <input class="f" id="pass" type="password" placeholder="كلمة المرور" autocomplete="current-password" dir="ltr">
-  <input class="f" id="room" placeholder="رمز الغرفة (مثال: shabab2026)" maxlength="40" autocapitalize="none">
   <button class="go" id="login">دخول</button>
   <button class="f" id="signup">إنشاء حساب جديد</button>
 </form>
+
+<div id="rooms" style="display:none">
+  <h1>غرفك</h1>
+  <div id="mine"></div>
+  <p>إنشاء غرفة جديدة</p>
+  <input class="f" id="newRoom" placeholder="اسم الغرفة (إنجليزي وأرقام)" maxlength="40" autocapitalize="none" dir="ltr">
+  <button class="go" id="mk">إنشاء</button>
+  <p>الانضمام بدعوة</p>
+  <input class="f" id="jRoom" placeholder="اسم الغرفة" autocapitalize="none" dir="ltr">
+  <input class="f" id="jInv" placeholder="رمز الدعوة" autocapitalize="none" dir="ltr">
+  <button class="f" id="jn">انضمام</button>
+  <button class="f" id="out2">تسجيل الخروج</button>
+</div>
 
 <div id="app">
   <header>
     <b id="title"></b>
     <button class="ic" id="callBtn" title="اتصال صوتي" aria-label="اتصال صوتي">📞</button>
-    <button class="ic" id="out" title="خروج" aria-label="تسجيل الخروج" style="background:var(--mute)">⎋</button>
+    <button class="ic" id="inv" title="دعوة صديق" aria-label="دعوة صديق" style="background:var(--mute)">🔗</button>
+    <button class="ic" id="back" title="غرفي" aria-label="العودة إلى الغرف" style="background:var(--mute)">☰</button>
   </header>
   <div id="list"></div>
   <div id="bar">
@@ -115,31 +128,70 @@ function note(t){ const n=$("note"); n.textContent=t; n.style.display="block"; s
 /* ---------- تسجيل الدخول ---------- */
 const unset = () => SUPABASE_URL.includes("YOUR-PROJECT");
 const client = () => sb = sb || supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-$("room").value = store("room") || "";
 async function auth(signup){
-  const email=$("email").value.trim(), pass=$("pass").value, r=$("room").value.trim().toLowerCase(), n=$("name").value.trim();
-  if(!email || !pass || !r) return note("اكتب البريد وكلمة المرور ورمز الغرفة");
+  const email=$("email").value.trim(), pass=$("pass").value, n=$("name").value.trim();
+  if(!email || !pass) return note("اكتب البريد وكلمة المرور");
   if(signup && !n) return note("اكتب اسمك للحساب الجديد");
-  if(unset()) return note("أضف بيانات Supabase داخل الملف أولاً");
+  if(unset()) return note("أضف بيانات Supabase داخل config.js");
   askNotify();
   const res = signup ? await client().auth.signUp({email,password:pass,options:{data:{name:n}}})
                      : await client().auth.signInWithPassword({email,password:pass});
   if(res.error) return note(res.error.message);
   if(!res.data.session) return note("افتح بريدك لتأكيد الحساب، ثم سجّل الدخول");
-  enter(res.data.session.user, r);
+  start(res.data.session.user);
 }
-function enter(user, r){
-  uid = user.id; name = (user.user_metadata && user.user_metadata.name) || user.email.split("@")[0]; room = r; store("room", r);
-  $("join").style.display="none"; $("app").style.display="flex"; $("title").textContent = "غرفة: " + room;
+function start(user){
+  uid = user.id; name = (user.user_metadata && user.user_metadata.name) || user.email.split("@")[0];
+  const last = store("room");
+  if(last) enter(last); else showRooms();
+}
+async function showRooms(){
+  $("join").style.display="none"; $("app").style.display="none"; $("rooms").style.display="flex";
+  const {data,error} = await sb.from("room_members").select("room").eq("uid",uid);
+  const box = $("mine"); box.textContent = "";
+  if(error) return note(error.message);
+  if(!data.length){ box.textContent = "ما عندك غرف بعد. أنشئ غرفة أو انضم بدعوة."; return; }
+  data.forEach(x => {
+    const b = document.createElement("button"); b.className = "f";
+    b.style.cssText = "display:block;width:100%;margin-bottom:8px;text-align:start";
+    b.textContent = "💬 " + x.room; b.onclick = () => enter(x.room); box.appendChild(b);
+  });
+}
+async function enter(r){
+  const {data} = await sb.from("rooms").select("id").eq("id",r).maybeSingle();
+  if(!data){ store("room",""); note("لم تعد عضواً في هذه الغرفة"); return showRooms(); }
+  room = r; store("room", r);
+  $("join").style.display="none"; $("rooms").style.display="none"; $("app").style.display="flex";
+  $("title").textContent = "غرفة: " + room;
   loadMessages(); listen(); startSignal(); registerPush();
 }
+function shareInvite(id, inv){ prompt("انسخ وأرسل لصديقك:", "الغرفة: " + id + " | الدعوة: " + inv); }
+$("mk").onclick = async () => {
+  const id = $("newRoom").value.trim().toLowerCase();
+  if(!/^[a-z0-9_-]{3,40}$/.test(id)) return note("اسم الغرفة: حروف إنجليزية صغيرة وأرقام و - _ فقط (3 إلى 40)");
+  const {data,error} = await sb.rpc("create_room",{p_id:id});
+  if(error) return note(/duplicate|exists/i.test(error.message) ? "اسم الغرفة مستخدم، اختر اسماً آخر" : error.message);
+  shareInvite(id, data); enter(id);
+};
+$("jn").onclick = async () => {
+  const id = $("jRoom").value.trim().toLowerCase(), inv = $("jInv").value.trim();
+  if(!id || !inv) return note("اكتب اسم الغرفة ورمز الدعوة");
+  const {error} = await sb.rpc("join_room",{p_id:id,p_invite:inv});
+  if(error) return note("اسم الغرفة أو رمز الدعوة غير صحيح");
+  enter(id);
+};
+$("inv").onclick = async () => {
+  const {data} = await sb.from("rooms").select("invite").eq("id",room).maybeSingle();
+  if(data) shareInvite(room, data.invite);
+};
+$("back").onclick = () => { store("room",""); location.reload(); };
 $("login").onclick = () => auth(false);
 $("signup").onclick = () => auth(true);
-$("out").onclick = async () => { await client().auth.signOut(); location.reload(); };
+$("out2").onclick = async () => { store("room",""); await client().auth.signOut(); location.reload(); };
 (async () => {  /* استعادة الجلسة تلقائياً */
-  if(unset() || !store("room")) return;
+  if(unset()) return;
   const {data} = await client().auth.getSession();
-  if(data.session) enter(data.session.user, store("room"));
+  if(data.session) start(data.session.user);
 })();
 
 /* ---------- الإشعارات ---------- */
@@ -171,6 +223,14 @@ async function registerPush(){
 }
 
 /* ---------- الرسائل ---------- */
+const sCache = {};
+async function signed(b){
+  const path = b.startsWith("http") ? decodeURIComponent((b.split("/chat-files/")[1] || "").split("?")[0]) : b;
+  if(!path) return null;
+  if(sCache[path]) return sCache[path];
+  const {data} = await sb.storage.from("chat-files").createSignedUrl(path, 3600);
+  return data ? (sCache[path] = data.signedUrl) : null;
+}
 const hue = s => { let h=0; for(const c of s) h=(h*31+c.charCodeAt(0))%360; return h; };
 function add(m){
   if(seen.has(m.id)) return; seen.add(m.id);
@@ -178,8 +238,8 @@ function add(m){
   const d = document.createElement("div"); d.className = "m" + (m.uid===uid ? " me" : "");
   if(m.uid!==uid){ const n=document.createElement("div"); n.className="n"; n.textContent=m.name; d.appendChild(n); }
   if(m.kind==="audio"){ const a=document.createElement("audio"); a.controls=true; a.src=m.body; d.appendChild(a); }
-  else if(m.kind==="image"){ const a=document.createElement("a"); a.href=m.body; a.target="_blank"; a.rel="noopener"; const i=document.createElement("img"); i.src=m.body; i.loading="lazy"; i.alt="صورة"; a.appendChild(i); d.appendChild(a); }
-  else if(m.kind==="file"){ const [u,n]=m.body.split("\n"); const a=document.createElement("a"); a.href=u; a.target="_blank"; a.rel="noopener"; a.style.color="inherit"; a.textContent="📄 "+(n||"ملف"); d.appendChild(a); }
+  else if(m.kind==="image"){ const a=document.createElement("a"); a.target="_blank"; a.rel="noopener"; const i=document.createElement("img"); i.loading="lazy"; i.alt="صورة"; a.appendChild(i); d.appendChild(a); signed(m.body).then(u => { if(u){ a.href=u; i.src=u; } }); }
+  else if(m.kind==="file"){ const [u,n]=m.body.split("\n"); const a=document.createElement("a"); a.target="_blank"; a.rel="noopener"; a.style.color="inherit"; a.textContent="📄 "+(n||"ملف"); d.appendChild(a); signed(u).then(x => { if(x) a.href=x; }); }
   else if(m.kind==="call"){ const s=document.createElement("div"); s.textContent="📞 " + (m.uid===uid ? "بدأت مكالمة" : m.name + " بدأ مكالمة"); d.appendChild(s); }
   else { const s=document.createElement("div"); s.textContent=m.body; d.appendChild(s); }
   const t=document.createElement("div"); t.className="t";
@@ -242,8 +302,7 @@ $("fi").onchange = async e => {
   const path = room.replace(/[^a-z0-9_-]/g,"_") + "/" + Date.now() + "-" + Math.random().toString(36).slice(2,8) + "." + ext;
   const {error} = await sb.storage.from("chat-files").upload(path, blob, {contentType: blob.type || f.type});
   if(error) return note("فشل الرفع: " + error.message);
-  const url = sb.storage.from("chat-files").getPublicUrl(path).data.publicUrl;
-  post(img ? "image" : "file", img ? url : url + "\n" + f.name.slice(0,60));
+  post(img ? "image" : "file", img ? path : path + "\n" + f.name.slice(0,60));
 };
 
 /* ---------- المكالمات الجماعية (WebRTC) ---------- */
@@ -251,7 +310,7 @@ let local = null, inCall = false, ringing = null, muted = false;
 const peers = {};   /* uid -> {pc, name, queue} */
 function sendSig(o){ sig.send({type:"broadcast",event:"sig",payload:{...o,from:uid,name}}); }
 function startSignal(){
-  sig = sb.channel("call-"+room,{config:{broadcast:{self:false}}});
+  sig = sb.channel("call-"+room,{config:{private:true,broadcast:{self:false}}});
   sig.on("broadcast",{event:"sig"},({payload}) => onSig(payload).catch(()=>{})).subscribe();
 }
 function show(acc){
