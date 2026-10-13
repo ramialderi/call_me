@@ -56,6 +56,8 @@ header small{color:var(--mute);font-weight:400;margin-inline-start:6px}
 .tile video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .tile .tn{position:absolute;bottom:6px;inset-inline:8px;font-size:12px;text-shadow:0 1px 3px #000}
 .q{border-inline-start:3px solid var(--mute);padding:2px 8px;margin-bottom:4px;font-size:12px;opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.tk{margin-inline-start:4px;letter-spacing:-2px}
+.tk.all{color:#7fd7ff}
 .rx{display:flex;gap:4px;flex-wrap:wrap}.rx:empty{display:none}
 .rx span{background:rgba(127,127,127,.22);border-radius:10px;padding:0 6px;font-size:13px;margin-top:3px}
 #rbar{display:none;align-items:center;gap:8px;padding:6px 12px;background:var(--card);border-top:1px solid var(--line);font-size:13px;color:var(--mute)}
@@ -288,7 +290,33 @@ async function signed(b){
   return data ? (sCache[path] = data.signedUrl) : null;
 }
 const hue = s => { let h=0; for(const c of s) h=(h*31+c.charCodeAt(0))%360; return h; };
-const msgs = {}, els = {}, reacts = {}, rxEl = {};
+const msgs = {}, els = {}, reacts = {}, rxEl = {}, tkEl = {}, readBy = {};
+let myLast = 0, others = 0, rdT;
+function setTick(id){
+  const el = tkEl[id]; if(!el) return;
+  const n = Object.values(readBy).filter(v => v >= id).length;
+  el.textContent = n === 0 ? " ✓" : (others > 1 && n < others ? " ✓✓ " + n : " ✓✓");
+  el.className = "tk" + (others > 0 && n >= others ? " all" : "");
+}
+function refreshTicks(){ Object.keys(tkEl).forEach(setTick); }
+async function loadReads(){
+  const [m, rd] = await Promise.all([
+    sb.from("room_members").select("uid").eq("room",room),
+    sb.from("reads").select("uid,last_id").eq("room",room)]);
+  others = Math.max(0, (m.data || []).length - 1);
+  (rd.data || []).forEach(x => { if(x.uid === uid) myLast = x.last_id; else readBy[x.uid] = x.last_id; });
+  refreshTicks();
+}
+function markRead(){
+  if(!room || !live || document.hidden) return;
+  clearTimeout(rdT);
+  rdT = setTimeout(async () => {
+    const top = Math.max(0, ...Object.keys(msgs).map(Number));
+    if(top > myLast){ myLast = top; await sb.from("reads").upsert({room, uid, last_id: top}); }
+  }, 700);
+}
+document.addEventListener("visibilitychange", () => { if(!document.hidden) markRead(); });
+window.addEventListener("focus", markRead);
 let replyTo = null, cur = null, lastTy = 0, tyT;
 const snip = m => !m ? "رسالة" : ({audio:"🎙️ رسالة صوتية",image:"📷 صورة",file:"📄 ملف",call:"📞 يتصل بك"})[m.kind] || String(m.body).slice(0,60);
 function drawReacts(id){
@@ -309,13 +337,16 @@ function fill(d, m){
     else { const s=document.createElement("div"); s.textContent=m.body; d.appendChild(s); }
   }
   const t=document.createElement("div"); t.className="t";
-  t.textContent = new Date(m.created_at).toLocaleTimeString("ar",{hour:"2-digit",minute:"2-digit"}); d.appendChild(t);
+  t.textContent = new Date(m.created_at).toLocaleTimeString("ar",{hour:"2-digit",minute:"2-digit"});
+  if(m.uid===uid && !m.deleted){ const k=document.createElement("span"); k.className="tk"; t.appendChild(k); tkEl[m.id]=k; setTick(m.id); } else delete tkEl[m.id];
+  d.appendChild(t);
   const rx = rxEl[m.id] || (rxEl[m.id] = document.createElement("div")); rx.className = "rx"; d.appendChild(rx); drawReacts(m.id);
   d.onclick = e => { if(m.deleted || m.kind==="call" || e.target.closest("a,audio")) return; openSheet(m); };
 }
 function add(m){
   if(seen.has(m.id)) return; seen.add(m.id); msgs[m.id] = m;
   if(live && m.uid!==uid && !m.deleted) notify(m.name, snip(m));
+  if(live && m.uid!==uid) markRead();
   const d = document.createElement("div"); d.className = "m" + (m.uid===uid ? " me" : ""); els[m.id] = d;
   fill(d, m);
   const l=$("list"), near = l.scrollHeight-l.scrollTop-l.clientHeight < 120 || m.uid===uid;
@@ -360,6 +391,7 @@ async function loadMessages(){
     const {data:rs} = await sb.from("reactions").select("msg_id,uid,emoji").eq("room",room).gte("msg_id",data[0].id);
     (rs || []).forEach(x => { (reacts[x.msg_id] = reacts[x.msg_id] || {})[x.uid] = x.emoji; drawReacts(x.msg_id); });
   }
+  await loadReads(); markRead();
 }
 function listen(){
   const f = {schema:"public", filter:"room=eq."+room};
@@ -371,6 +403,12 @@ function listen(){
     .on("postgres_changes",{event:"*",table:"reactions",...f}, p => {
       const x = p.new; if(!x || !x.msg_id) return;
       (reacts[x.msg_id] = reacts[x.msg_id] || {})[x.uid] = x.emoji; drawReacts(x.msg_id);
+    })
+    .subscribe();
+  sb.channel("rd-"+room)
+    .on("postgres_changes",{event:"*",table:"reads",...f}, p => {
+      const x = p.new; if(!x || !x.uid || x.uid === uid) return;
+      readBy[x.uid] = x.last_id; refreshTicks();
     })
     .subscribe();
 }
